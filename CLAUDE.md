@@ -4,15 +4,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI Agent Profile Builder — a React SPA where users compose AI agent configurations by selecting a base profile, skills, layers, and an AI provider. This is a **Vivasoft Nepal hiring challenge** repo; the codebase intentionally contains bugs and anti-patterns for candidates to identify and fix.
+**AI Agent Builder with Live Chat** — A production-ready React SPA where users compose AI agent configurations (profile + skills + layers) and engage in real-time streaming chat with multiple LLM providers. Started as a Vivasoft Nepal hiring challenge; now includes real AI streaming, dark glassmorphism UI, Google Drive integration, and performance optimizations.
+
+## Current Implementation Status
+
+✅ **Complete** (all 9 phases shipped):
+- Agent builder UI with drag-and-drop support
+- Real streaming chat with 6+ LLM providers (OpenRouter free, OpenAI, Anthropic, Google, DeepSeek, Kimi)
+- Dark glassmorphism redesign (100% dark mode, layered transparency effects)
+- Google OAuth + Google Drive sync (save/load agents to Drive)
+- OpenRouter free tier (10-message limit, upgrade modal)
+- Modular skill/layer system (.md prompt fragments)
+- Performance optimizations (5 critical fixes)
+- localStorage persistence for agent configurations
+
+Build status: ✅ **Passing** (`bun run build` — 0 errors)
 
 ## Commands
 
 ```bash
 bun install          # Install dependencies (uses bun.lock)
 bun run dev          # Start Vite dev server with HMR
-bun run build        # TypeScript check + Vite production build
-bun run lint         # ESLint (flat config, TS + React Hooks rules)
+bun run build        # TypeScript check + Vite production build (passes)
+bun run lint         # ESLint (flat config, TS + React Hooks)
 bun run preview      # Serve production build locally
 ```
 
@@ -24,40 +38,80 @@ No test framework is configured.
 - **TypeScript 5.9** — strict mode, noUnusedLocals, noUnusedParameters
 - **Vite 8** — build tooling with `@vitejs/plugin-react` + `@rolldown/plugin-babel`
 - **ESLint 9** — flat config with react-hooks and react-refresh plugins
-- No routing library, no CSS framework, no state management library, no backend
+- **@dnd-kit** — drag-and-drop for skills/layers
+- **Google OAuth 2.0** — GIS SDK for Google Drive integration
+- **Tailwind CSS** (via CDN)
+- No routing library, no state management library, **no backend** (browser-direct AI calls)
 
 ## Architecture
 
-The entire application lives in a single monolithic component (`src/App.tsx`, ~410 lines). There are no extracted sub-components, custom hooks, or context providers.
+**Component Structure:**
+- `src/App.tsx` — root composition, provider routing, chat mode switching
+- `src/components/builder/` — AgentBuilderTab, profile/skill/layer selection
+- `src/components/chat/` — ChatInput, ChatBubble, LiveChatPlayground, ApiKeyModal, PaymentModal
+- `src/components/saved/` — SavedAgentCard, SavedAgentsTab (with Drive sync)
+- `src/hooks/` — useAgentBuilder, useLiveChat, useSavedAgents, useMessageLimit, useChatPlayground
 
 **Data flow:**
-- `fetchAPI()` loads `/public/data.json` (10 agent profiles, 12 skills, 12 layers) with a simulated 1–3s delay
-- User selections are held in `useState` hooks (profile, skills[], layers[], provider)
-- Saved agents persist to `localStorage`
-- No backend calls — provider selection (Gemini, ChatGPT, Claude, etc.) is UI-only
+1. User selects profile → skills (with drag-drop UI) → layers → provider
+2. Click "Open Chat" → route to LiveChatPlayground (if free tier) or ApiKeyModal (if paid)
+3. useLiveChat hook handles streaming SSE from provider client
+4. System prompt = profile description + fetched skill .md files + layer .md files (cached)
+5. Saved agents → localStorage (+ optional Google Drive sync)
 
-**Type definitions** are inline at the top of `App.tsx`: `AgentProfile`, `Skill`, `Layer`, `AgentData`, `SavedAgent`.
-
-## Intentional Bugs & Anti-Patterns
-
-These are placed deliberately for the challenge:
-
-1. **Direct state mutation** — `handleLayerSelect` pushes onto the existing array reference instead of spreading
-2. **Stale closure** — analytics heartbeat interval captures `agentName` but has an empty dependency array
-3. **Redundant API calls** — `fetchAPI()` is called inside `handleSkillSelect`, `handleLayerSelect`, and on every profile dropdown change, re-fetching static data unnecessarily
-4. **No component extraction** — everything is in one component with inline styles
-5. **No responsive design or accessibility**
+**Type definitions** in `src/types/index.ts`: Provider, SavedAgent, ChatMessage, AgentProfile, Skill, Layer, etc.
 
 ## Data Model
 
-Static mock data in `/public/data.json`:
-- **Profiles**: base agent personas (Customer Support, Code Assistant, Data Analyst, etc.)
-- **Skills**: categorized as `information` or `action`
-- **Layers**: categorized as `reasoning`, `personality`, `context`, or `formatting`
+**Agent configurations:**
+- `/public/data.json` — 10 profiles, 12 skills, 12 layers (static mock)
+- `/public/skills/*.md` — 12 skill prompt fragments (sk_search.md, sk_code.md, etc.)
+- `/public/layers/*.md` — 12 layer behavioral instructions (ly_cot.md, ly_pirate.md, etc.)
 
-## Challenge Goals (from README)
+**Chat system:**
+- Real-time SSE streaming from multiple LLM providers
+- Message history stored in component state during session
+- System prompt dynamically assembled from profile + selected skills + selected layers
 
-- Fix React anti-patterns and performance issues
-- Implement drag-and-drop UI (replacing dropdowns)
-- Extract components, add responsive design
-- Submit as a PR with explanation of fixes and design decisions
+## Performance Optimizations (Implemented)
+
+1. **useLiveChat.ts** — Critical streaming fix: `sendMessage` callback now uses refs for mutable state (`messagesRef`, `activeAgentRef`, `isStreamingRef`) with empty dependencies → prevents recreating function on every streaming chunk
+2. **SkillPool + LayerPool** — O(1) filter: replaced `Array.includes()` with `Set` for selection lookup
+3. **useAgentBuilder.ts** — Analytics interval: now uses ref-based dependency (not state) so interval fires correctly even while user types
+4. **SavedAgentCard + ChatBubble** — Module-scope formatters: moved `formatDate` and time formatting out of component body to prevent function recreation
+5. **vite.config.ts** — Chunk splitting: vendor chunks (react, @dnd-kit) separated for better cache performance
+
+## Provider Integration
+
+**Free tier (no key required):**
+- OpenRouter (Free) — uses `nvidia/nemotron-3-super-120b-a12b:free` model
+- 10-message limit per session → PaymentModal (mockup)
+
+**Paid providers (API key modal):**
+- OpenAI (ChatGPT models)
+- Anthropic (Claude 3.x)
+- Google (Gemini)
+- DeepSeek
+- Kimi
+
+**Provider routing in App.tsx:**
+```
+OpenRouter (Free) → direct to LiveChatPlayground
+Other provider → ApiKeyModal first → LiveChatPlayground
+No provider → ChatPlayground (simulated fallback)
+```
+
+## Google Integration
+
+- **OAuth via GIS SDK** — user signs in to enable Drive sync
+- **appDataFolder REST API** — save/load agent configs to Google Drive (not visible in user's file browser)
+- **Auto-sync button** on SavedAgentsTab — "Sync to Drive" / "Load from Drive"
+
+## UI/UX Features
+
+- **Dark glassmorphism** — layered transparency, backdrop blur, dark grays
+- **Drag-and-drop** — reorder skills/layers with visual feedback
+- **Streaming indicator** — bouncing thinking dots while AI responds
+- **Message counter** — "X/10 free messages used" on free tier
+- **Payment/upgrade modals** — encourage paid tier after limit exceeded
+- **Responsive layout** — two-tab UI (Builder + Saved Agents/Chat)
