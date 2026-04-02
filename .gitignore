@@ -25,3 +25,15 @@ dist-ssr
 
 admin.md
 .env
+
+# AI agent/tooling artifacts (not required to run this project)
+.agents/
+.claude/
+.codex
+.codex/
+.omx/
+.remember/
+test-results/
+AGENTS.md
+GEMINI.md
+!CLAUDE.md
