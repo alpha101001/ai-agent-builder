@@ -1,410 +1,461 @@
-import { useState, useEffect } from 'react'
+import './App.css'
+import { useState, useEffect, useRef } from 'react'
+import { useAgentData } from './hooks/useAgentData'
+import { useAgentBuilder } from './hooks/useAgentBuilder'
+import { useSavedAgents } from './hooks/useSavedAgents'
+import { useChatPlayground } from './hooks/useChatPlayground'
+import { useGoogleAuth } from './hooks/useGoogleAuth'
+import { useGoogleDrive } from './hooks/useGoogleDrive'
+import { ErrorBoundary } from './components/shared/ErrorBoundary'
+import { ToastProvider } from './components/shared/Toast'
+import { useToast } from './components/shared/ToastContext'
+import { LoadingSkeleton } from './components/shared/LoadingSkeleton'
+import { DndWrapper } from './components/shared/DndWrapper'
+import { AppHeader } from './components/layout/AppHeader'
+import { ProfileCardGrid } from './components/profile/ProfileCardGrid'
+import { SkillPool } from './components/skills/SkillPool'
+import { LayerPool } from './components/layers/LayerPool'
+import { ProviderCardGrid } from './components/provider/ProviderCardGrid'
+import { AgentPreview } from './components/builder/AgentPreview'
+import { SaveAgentForm } from './components/builder/SaveAgentForm'
+import { SavedAgentsList } from './components/saved/SavedAgentsList'
+import { ChatPlayground } from './components/chat/ChatPlayground'
+import { LiveChatPlayground } from './components/chat/LiveChatPlayground'
+import { ApiKeyModal } from './components/chat/ApiKeyModal'
+import { GoogleSetupModal, STORED_CLIENT_ID_KEY } from './components/auth/GoogleSetupModal'
+import { DriveConsentModal } from './components/auth/DriveConsentModal'
+import { FREE_PROVIDER } from './lib/constants'
+import type { SavedAgent, Provider } from './types'
 
-// Define the types based on data.json
-interface AgentProfile {
-  id: string
-  name: string
-  description: string
+// ################ Resolve effective Google Client ID ##################
+const USE_ENV_CREDENTIALS = import.meta.env.VITE_USE_ENV_CREDENTIALS === 'true'
+const ENV_CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string) || ''
+
+function resolveInitialClientId(): string {
+  if (USE_ENV_CREDENTIALS) return ENV_CLIENT_ID
+  return localStorage.getItem(STORED_CLIENT_ID_KEY) ?? ''
 }
 
-interface Skill {
-  id: string
-  name: string
-  category: string
-  description: string
-}
+type Tab = 'builder' | 'saved'
 
-interface Layer {
-  id: string
-  name: string
-  type: string
-  description: string
-}
+// ################ Main App Component ##################
 
-interface AgentData {
-  agentProfiles: AgentProfile[]
-  skills: Skill[]
-  layers: Layer[]
-}
+function AppContent() {
+  const { data, loading, error, refetch } = useAgentData()
+  const builder = useAgentBuilder()
+  const { savedAgents, saveAgent, updateAgent, deleteAgent, clearAll, replaceAll } = useSavedAgents()
+  const chat = useChatPlayground()
+  const { addToast } = useToast()
 
-interface SavedAgent {
-  name: string
-  profileId: string
-  skillIds: string[]
-  layerIds: string[]
-  provider?: string
-}
+  // Tab state
+  const [activeTab, setActiveTab] = useState<Tab>('builder')
 
-function App() {
-  const [data, setData] = useState<AgentData | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // Live chat state
+  const [liveChat, setLiveChat] = useState<{ agent: SavedAgent; apiKey?: string } | null>(null)
+  const [pendingChatAgent, setPendingChatAgent] = useState<SavedAgent | null>(null)
 
-  // Selection states
-  const [selectedProfile, setSelectedProfile] = useState<string>('')
-  const [selectedSkills, setSelectedSkills] = useState<string[]>([])
-  const [selectedLayers, setSelectedLayers] = useState<string[]>([])
+  // Highlight recently saved card
+  const [recentlySavedId, setRecentlySavedId] = useState<string | null>(null)
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Saving states
-  const [agentName, setAgentName] = useState('')
-  const [savedAgents, setSavedAgents] = useState<SavedAgent[]>([])
-  const [selectedProvider, setSelectedProvider] = useState<string>('')
+  // ---- Google Auth ----
+  const [googleClientId, setGoogleClientId] = useState(resolveInitialClientId)
+  const [showSetupModal, setShowSetupModal] = useState(
+    !USE_ENV_CREDENTIALS && !resolveInitialClientId()
+  )
+  const [showConsentModal, setShowConsentModal] = useState(false)
 
-  const handleDeleteAgent = (indexToRemove: number) => {
-    const updatedAgents = savedAgents.filter((_, index) => index !== indexToRemove)
-    setSavedAgents(updatedAgents)
-    localStorage.setItem('savedAgents', JSON.stringify(updatedAgents))
-  }
+  const { user: googleUser, accessToken, signIn, signOut, isLoading: gLoading, isReady: gReady } =
+    useGoogleAuth(googleClientId)
 
-  const [sessionTime, setSessionTime] = useState(0)
+  const { syncToDrive, loadFromDrive, isSyncing, lastSynced } = useGoogleDrive(accessToken)
 
+  // ---- Auto-load from Drive on sign-in ----
+  const prevGoogleUserRef = useRef<typeof googleUser>(null)
   useEffect(() => {
-    const interval = setInterval(() => {
-      setSessionTime(prev => prev + 1)
-    }, 1000)
-    return () => clearInterval(interval)
-  }, [])
+    if (googleUser && !prevGoogleUserRef.current) {
+      loadFromDrive().then(agents => {
+        if (agents !== null && agents.length > 0) {
+          replaceAll(agents)
+          addToast(`Loaded ${agents.length} agents from Drive.`, 'success')
+        }
+      })
+    }
+    prevGoogleUserRef.current = googleUser
+  }, [googleUser]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ---- Auto-sync to Drive on any savedAgents change ----
+  const isFirstMountRef = useRef(true)
   useEffect(() => {
-    // Load saved agents from local storage on component mount
-    const saved = localStorage.getItem('savedAgents')
-    if (saved) {
-      try {
-        setSavedAgents(JSON.parse(saved))
-      } catch (e) {
-        console.error('Failed to parse saved agents', e)
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    const analyticsInterval = setInterval(() => {
-      if (agentName !== '') {
-        console.log(`[Analytics Heartbeat] User is working on agent named: "${agentName}"`)
-      } else {
-        console.log(`[Analytics Heartbeat] User is working on an unnamed agent draft...`)
-      }
-    }, 8000)
-
-    return () => clearInterval(analyticsInterval)
-  }, [])
-
-  const fetchAPI = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      // Simulate network delay and randomness (1 to 3 seconds)
-      const delay = Math.floor(Math.random() * 2000) + 1000
-      await new Promise((resolve) => setTimeout(resolve, delay))
-
-      const response = await fetch('/data.json')
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-      const jsonData: AgentData = await response.json()
-      setData(jsonData)
-    } catch (err: any) {
-      console.error('Error fetching data:', err)
-      setError(err.message || 'Failed to fetch agent data')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Fetch data on initial component mount
-  useEffect(() => {
-    fetchAPI()
-  }, [])
-
-  const handleLayerSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const layerId = e.target.value;
-    if (layerId && !selectedLayers.includes(layerId)) {
-      selectedLayers.push(layerId)
-      setSelectedLayers(selectedLayers)
-    }
-    e.target.value = ""; // Reset dropdown
-
-    fetchAPI()
-  }
-
-  const handleSkillSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const skillId = e.target.value;
-    if (skillId && !selectedSkills.includes(skillId)) {
-      setSelectedSkills([...selectedSkills, skillId]);
-    }
-    e.target.value = ""; // Reset dropdown
-
-    fetchAPI()
-  }
-
-  const handleSaveAgent = () => {
-    if (!agentName.trim()) {
-      alert('Please enter a name for your agent.')
+    if (isFirstMountRef.current) {
+      isFirstMountRef.current = false
       return
     }
-
-    const newAgent: SavedAgent = {
-      name: agentName,
-      profileId: selectedProfile,
-      skillIds: selectedSkills,
-      layerIds: selectedLayers,
-      provider: selectedProvider,
+    if (googleUser && accessToken) {
+      void syncToDrive(savedAgents)
     }
+  }, [savedAgents]) // eslint-disable-line react-hooks/exhaustive-deps
 
-    const updatedAgents = [...savedAgents, newAgent]
-    setSavedAgents(updatedAgents)
-    localStorage.setItem('savedAgents', JSON.stringify(updatedAgents))
-    setAgentName('')
-    alert(`Agent "${newAgent.name}" saved successfully!`)
+  // ---- Google sign-in (consent modal first) ----
+  const handleGoogleSignIn = () => {
+    if (!googleClientId && !USE_ENV_CREDENTIALS) {
+      setShowSetupModal(true)
+      return
+    }
+    setShowConsentModal(true)
+  }
+
+  const handleConsentUnderstood = () => {
+    setShowConsentModal(false)
+    signIn()
+  }
+
+  const handleSetupConnect = (clientId: string) => {
+    setGoogleClientId(clientId)
+    setShowSetupModal(false)
+    setTimeout(() => signIn(), 100)
+  }
+
+  // ---- Drive manual buttons ----
+  const handleSyncToDrive = async () => {
+    const ok = await syncToDrive(savedAgents)
+    if (ok) {
+      addToast(`${savedAgents.length} agents synced to Drive.`, 'success')
+    } else {
+      addToast('Failed to sync to Drive. Try signing in again.', 'error')
+    }
+  }
+
+  const handleLoadFromDrive = async () => {
+    const agents = await loadFromDrive()
+    if (agents === null) {
+      addToast('No saved agents found in Drive.', 'info')
+    } else {
+      replaceAll(agents)
+      addToast(`Loaded ${agents.length} agents from Drive.`, 'success')
+    }
+  }
+
+  // ---- Agent builder helpers ----
+  const currentConfig = {
+    name: builder.agentName,
+    profileId: builder.selectedProfile,
+    skillIds: builder.selectedSkills,
+    layerIds: builder.selectedLayers,
+    provider: builder.selectedProvider,
+  }
+
+  /** Switch to Saved Agents tab and animate the new card. */
+  const switchToSavedAndHighlight = (id: string) => {
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
+    setRecentlySavedId(id)
+    highlightTimerRef.current = setTimeout(() => setRecentlySavedId(null), 2700)
+    setActiveTab('saved')
+    // Scroll to top so the user lands at the card grid
+    setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 60)
+  }
+
+  // ---- Agent CRUD handlers ----
+  const handleSave = (): boolean => {
+    if (!builder.agentName.trim()) return false
+    const duplicate = savedAgents.some(
+      a => a.name.toLowerCase() === builder.agentName.trim().toLowerCase()
+    )
+    if (duplicate) {
+      addToast(`An agent named "${builder.agentName}" already exists.`, 'error')
+      return false
+    }
+    const resolvedProvider = currentConfig.provider || FREE_PROVIDER
+    const newAgent = saveAgent({ ...currentConfig, provider: resolvedProvider })
+    builder.reset()
+    if (!currentConfig.provider) {
+      addToast(`Agent "${newAgent.name}" saved! Provider defaulted to OpenRouter (Free).`, 'success')
+    } else {
+      addToast(`Agent "${newAgent.name}" saved!`, 'success')
+    }
+    switchToSavedAndHighlight(newAgent.id)
+    return true
+  }
+
+  const handleUpdate = (): void => {
+    if (!builder.loadedAgentId || !builder.agentName.trim()) return
+    updateAgent(builder.loadedAgentId, currentConfig)
+    addToast(`Agent "${builder.agentName}" updated.`, 'success')
+  }
+
+  const handleCreateNew = (): boolean => {
+    if (!builder.agentName.trim()) return false
+    const loadedAgent = savedAgents.find(a => a.id === builder.loadedAgentId)
+    if (loadedAgent?.name.toLowerCase() === builder.agentName.trim().toLowerCase()) {
+      addToast('Please use a different name to create a new agent.', 'error')
+      return false
+    }
+    const duplicate = savedAgents.some(
+      a => a.name.toLowerCase() === builder.agentName.trim().toLowerCase()
+    )
+    if (duplicate) {
+      addToast(`An agent named "${builder.agentName}" already exists.`, 'error')
+      return false
+    }
+    const newAgent = saveAgent(currentConfig)
+    addToast(`New agent "${newAgent.name}" created.`, 'success')
+    switchToSavedAndHighlight(newAgent.id)
+    return true
   }
 
   const handleLoadAgent = (agent: SavedAgent) => {
-    setSelectedProfile(agent.profileId || '')
-    setSelectedSkills(agent.skillIds || [])
-    setSelectedLayers([...(agent.layerIds || [])])
-    setAgentName(agent.name)
-    setSelectedProvider(agent.provider || '')
+    builder.loadAgent(agent)
+    setActiveTab('builder') // switch to builder to edit the loaded config
+    addToast(`Loaded agent "${agent.name}"`, 'info')
+    setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 60)
+  }
+
+  // ---- Chat handlers ----
+  const handleOpenChat = (agent: SavedAgent) => {
+    if (!data) return
+    if (agent.provider === FREE_PROVIDER) {
+      setLiveChat({ agent })
+    } else if (agent.provider && agent.provider !== '') {
+      setPendingChatAgent(agent)
+    } else {
+      chat.openChat(agent, data)
+    }
+  }
+
+  const handleApiKeySubmit = (apiKey: string) => {
+    if (!pendingChatAgent) return
+    setLiveChat({ agent: pendingChatAgent, apiKey })
+    setPendingChatAgent(null)
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20">
+        <div className="text-5xl mb-4">😵</div>
+        <h2 className="text-xl font-semibold text-white/90 mb-2">Failed to load data</h2>
+        <p className="text-white/50 mb-4">{error}</p>
+        <button onClick={refetch} className="px-6 py-2 btn-neon-violet rounded-lg font-medium">
+          Try Again
+        </button>
+      </div>
+    )
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', padding: '1rem', fontFamily: 'sans-serif' }}>
-      <header style={{ marginBottom: '2rem' }}>
-        <h1>AI Agent Builder</h1>
-        <p>Design your custom AI personality and capability set.</p>
-        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-          <button onClick={fetchAPI} disabled={loading}>
-            {loading ? 'Fetching Configuration...' : 'Reload Configuration Data'}
-          </button>
-          <span style={{ fontSize: '0.9rem', color: '#666' }}>
-            Session Active: {sessionTime}s
-          </span>
-        </div>
-      </header>
+    <div className="relative min-h-screen px-4 py-6 sm:px-6 lg:px-8 max-w-7xl mx-auto z-10">
+      <AppHeader
+        sessionTime={builder.sessionTime}
+        googleUser={googleUser}
+        isGoogleLoading={gLoading}
+        isGoogleReady={gReady}
+        onGoogleSignIn={handleGoogleSignIn}
+        onGoogleSignOut={signOut}
+      />
 
-      <main style={{ display: 'flex', flexDirection: 'column', gap: '2rem', flex: 1 }}>
-        <div style={{ display: 'flex', gap: '2rem', flexDirection: 'row' }}>
-          {/* Left pane: Selections */}
-          <section style={{ flex: '1 1 50%', borderRight: '1px solid #ccc', paddingRight: '1rem' }}>
-            <h2>Configuration Options</h2>
-            {error && <div style={{ color: 'red', marginBottom: '1rem' }}>Error: {error}</div>}
+      {/* ---- Tab switcher ---- */}
+      <div className="flex gap-1 p-1 glass rounded-2xl border border-white/[0.07] mb-8 w-full sm:w-auto sm:inline-flex">
+        <button
+          onClick={() => setActiveTab('builder')}
+          className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 focus:outline-none ${
+            activeTab === 'builder'
+              ? 'bg-violet-600/30 text-violet-200 border border-violet-500/40 shadow-[0_0_12px_rgba(139,92,246,0.2)]'
+              : 'text-white/40 hover:text-white/70 border border-transparent'
+          }`}
+        >
+          <span>⚡</span>
+          <span>Agent Builder</span>
+        </button>
 
-            {/* Show loading state explicitly */}
-            {loading && (
-              <div style={{ padding: '2rem', background: '#f0f8ff', border: '1px dashed #0066cc', marginBottom: '1rem' }}>
-                Fetching simulated API... (this takes 1-3 seconds to test loading states)
-              </div>
-            )}
+        <button
+          onClick={() => setActiveTab('saved')}
+          className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 focus:outline-none ${
+            activeTab === 'saved'
+              ? 'bg-violet-600/30 text-violet-200 border border-violet-500/40 shadow-[0_0_12px_rgba(139,92,246,0.2)]'
+              : 'text-white/40 hover:text-white/70 border border-transparent'
+          }`}
+        >
+          <span>🤖</span>
+          <span>Saved Agents</span>
+          {savedAgents.length > 0 && (
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold transition-colors ${
+              activeTab === 'saved'
+                ? 'bg-violet-500/40 text-violet-200'
+                : 'bg-white/[0.08] text-white/40'
+            }`}>
+              {savedAgents.length}
+            </span>
+          )}
+        </button>
+      </div>
 
-            {!data && !loading && !error && <p>No data loaded.</p>}
-
-            {data && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                <div>
-                  <label htmlFor="profile-select" style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.5rem' }}>Base Profile:</label>
-                  <select
-                    id="profile-select"
-                    value={selectedProfile}
-                    onChange={(e) => {
-                      setSelectedProfile(e.target.value)
-                      fetchAPI()
-                    }}
-                    style={{ width: '100%', padding: '0.5rem' }}
-                  >
-                    <option value="">-- Select a Profile --</option>
-                    {data.agentProfiles.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label htmlFor="skill-select" style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.5rem' }}>Add Skill:</label>
-                  <select
-                    id="skill-select"
-                    onChange={handleSkillSelect}
-                    defaultValue=""
-                    style={{ width: '100%', padding: '0.5rem' }}
-                  >
-                    <option value="" disabled>-- Select a Skill to Add --</option>
-                    {data.skills.map((s) => (
-                      <option key={s.id} value={s.id}>{s.name} ({s.category})</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label htmlFor="layer-select" style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.5rem' }}>Add Personality Layer:</label>
-                  <select
-                    id="layer-select"
-                    onChange={handleLayerSelect}
-                    defaultValue=""
-                    style={{ width: '100%', padding: '0.5rem' }}
-                  >
-                    <option value="" disabled>-- Select a Layer to Add --</option>
-                    {data.layers.map((l) => (
-                      <option key={l.id} value={l.id}>{l.name} ({l.type})</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label htmlFor="provider-select" style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.5rem' }}>AI Provider:</label>
-                  <select
-                    id="provider-select"
-                    value={selectedProvider}
-                    onChange={(e) => setSelectedProvider(e.target.value)}
-                    style={{ width: '100%', padding: '0.5rem' }}
-                  >
-                    <option value="">-- Select an AI Provider --</option>
-                    {['Gemini', 'ChatGPT', 'Kimi', 'Claude', 'DeepSeek'].map((provider) => (
-                      <option key={provider} value={provider}>{provider}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            )}
-          </section>
-
-          {/* Right pane: Selected configuration preview */}
-          <section style={{ flex: '1 1 50%', paddingLeft: '1rem' }}>
-            <h2>Current Agent Configuration</h2>
-
-            <div style={{ background: '#f5f5f5', padding: '1rem', borderRadius: '8px', minHeight: '300px' }}>
-              <h3 style={{ marginTop: 0 }}>Profile</h3>
-              {selectedProfile && data ? (
-                <p>
-                  <strong>{data.agentProfiles.find(p => p.id === selectedProfile)?.name}</strong>:
-                  {' '}{data.agentProfiles.find(p => p.id === selectedProfile)?.description}
-                </p>
-              ) : (
-                <p style={{ color: '#888' }}>No profile selected.</p>
-              )}
-
-              <h3>Selected Skills</h3>
-              {selectedSkills.length > 0 && data ? (
-                <ul style={{ paddingLeft: '1.5rem' }}>
-                  {selectedSkills.map(skillId => {
-                    const skill = data.skills.find(s => s.id === skillId);
-                    return (
-                      <li key={skillId} style={{ marginBottom: '0.5rem' }}>
-                        {skill?.name}
-                        <button
-                          onClick={() => setSelectedSkills(selectedSkills.filter(id => id !== skillId))}
-                          style={{ marginLeft: '1rem', fontSize: '0.8rem', cursor: 'pointer' }}
-                        >
-                          Remove
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
-              ) : (
-                <p style={{ color: '#888' }}>No skills added.</p>
-              )}
-
-              <h3>Selected Layers</h3>
-              {selectedLayers.length > 0 && data ? (
-                <ul style={{ paddingLeft: '1.5rem' }}>
-                  {selectedLayers.map(layerId => {
-                    const layer = data.layers.find(l => l.id === layerId);
-                    return (
-                      <li key={layerId} style={{ marginBottom: '0.5rem' }}>
-                        {layer?.name}
-                        <button
-                          onClick={() => setSelectedLayers(selectedLayers.filter(id => id !== layerId))}
-                          style={{ marginLeft: '1rem', fontSize: '0.8rem', cursor: 'pointer' }}
-                        >
-                          Remove
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
-              ) : (
-                <p style={{ color: '#888' }}>No layers added.</p>
-              )}
-
-              <h3>Selected Provider</h3>
-              {selectedProvider ? (
-                <p><strong>{selectedProvider}</strong></p>
-              ) : (
-                <p style={{ color: '#888' }}>No provider selected.</p>
-              )}
-
-              <div style={{ marginTop: '2rem', borderTop: '1px solid #ddd', paddingTop: '1rem' }}>
-                <h3 style={{ marginTop: 0 }}>Save This Agent</h3>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <input
-                    type="text"
-                    placeholder="Enter agent name..."
-                    value={agentName}
-                    onChange={e => setAgentName(e.target.value)}
-                    style={{ flex: 1, padding: '0.5rem' }}
+      {loading || !data ? (
+        <LoadingSkeleton />
+      ) : (
+        <>
+          {/* ---- Tab 1: Agent Builder ---- */}
+          {activeTab === 'builder' && (
+            <DndWrapper
+              skills={data.skills}
+              layers={data.layers}
+              selectedSkillIds={builder.selectedSkills}
+              selectedLayerIds={builder.selectedLayers}
+              onSkillAdd={builder.addSkill}
+              onLayerAdd={builder.addLayer}
+              onSkillReorder={builder.reorderSkills}
+              onLayerReorder={builder.reorderLayers}
+            >
+              <main className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+                {/* Left: Configuration Options */}
+                <div className="lg:col-span-3 space-y-8">
+                  <ProfileCardGrid
+                    profiles={data.agentProfiles}
+                    selectedProfileId={builder.selectedProfile}
+                    onSelect={builder.setSelectedProfile}
                   />
-                  <button onClick={handleSaveAgent} style={{ padding: '0.5rem 1rem' }}>
-                    Save Agent
-                  </button>
-                </div>
-              </div>
-            </div>
-          </section>
-        </div>
 
-        {/* Bottom Panel: Saved Agents */}
-        {savedAgents.length > 0 && (
-          <section style={{ padding: '1.5rem', background: '#e0f7fa', borderRadius: '8px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h2 style={{ margin: 0 }}>Saved Agents</h2>
-              <button
-                onClick={() => {
-                  if (confirm('Are you sure you want to clear all saved agents?')) {
-                    setSavedAgents([])
-                    localStorage.removeItem('savedAgents')
-                  }
-                }}
-                style={{ padding: '0.5rem 1rem', background: '#d32f2f', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-              >
-                Clear All
-              </button>
-            </div>
-            <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
-              {savedAgents.map((agent, index) => (
-                <div key={index} style={{ padding: '1rem', background: 'white', borderRadius: '8px', border: '1px solid #b2ebf2', minWidth: '220px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-                  <h3 style={{ marginTop: 0, color: '#006064' }}>{agent.name}</h3>
-                  <p style={{ margin: '0.5rem 0', fontSize: '0.9rem' }}>
-                    <strong>Profile:</strong> {data?.agentProfiles.find(p => p.id === agent.profileId)?.name || 'None Selected'}
-                  </p>
-                  <p style={{ margin: '0.5rem 0', fontSize: '0.9rem' }}>
-                    <strong>Skills:</strong> {agent.skillIds?.length || 0} included
-                  </p>
-                  <p style={{ margin: '0.5rem 0', fontSize: '0.9rem' }}>
-                    <strong>Layers:</strong> {agent.layerIds?.length || 0} included
-                  </p>
-                  <p style={{ margin: '0.5rem 0', fontSize: '0.9rem' }}>
-                    <strong>Provider:</strong> {agent.provider || 'None'}
-                  </p>
-                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                    <button
-                      onClick={() => handleLoadAgent(agent)}
-                      style={{ flex: 1, padding: '0.5rem', background: '#00838f', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                    >
-                      Load
-                    </button>
-                    <button
-                      onClick={() => handleDeleteAgent(index)}
-                      style={{ padding: '0.5rem', background: '#d32f2f', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                    >
-                      Delete
-                    </button>
+                  <section>
+                    <h2 className="text-lg font-semibold text-white/90 mb-1">Skills</h2>
+                    <p className="text-sm text-white/40 mb-3">Drag to the preview panel or click to add</p>
+                    <SkillPool
+                      skills={data.skills}
+                      selectedSkillIds={builder.selectedSkills}
+                      onAdd={builder.addSkill}
+                    />
+                  </section>
+
+                  <section>
+                    <h2 className="text-lg font-semibold text-white/90 mb-1">Personality Layers</h2>
+                    <p className="text-sm text-white/40 mb-3">Drag to the preview panel or click to add</p>
+                    <LayerPool
+                      layers={data.layers}
+                      selectedLayerIds={builder.selectedLayers}
+                      onAdd={builder.addLayer}
+                    />
+                  </section>
+
+                  <ProviderCardGrid
+                    selectedProvider={builder.selectedProvider}
+                    onSelect={builder.setSelectedProvider}
+                  />
+                </div>
+
+                {/* Right: Agent Preview (sticky on desktop) */}
+                <div className="lg:col-span-2">
+                  <div className="lg:sticky lg:top-6">
+                    <h2 className="text-lg font-semibold text-white/90 mb-3">Agent Configuration</h2>
+                    <div className="glass rounded-2xl p-5 shimmer-card">
+                      <AgentPreview
+                        data={data}
+                        selectedProfile={builder.selectedProfile}
+                        selectedSkillIds={builder.selectedSkills}
+                        selectedLayerIds={builder.selectedLayers}
+                        selectedProvider={builder.selectedProvider}
+                        onRemoveSkill={builder.removeSkill}
+                        onRemoveLayer={builder.removeLayer}
+                      />
+                      <SaveAgentForm
+                        agentName={builder.agentName}
+                        onAgentNameChange={builder.setAgentName}
+                        onSave={handleSave}
+                        onReset={builder.reset}
+                        loadedAgentId={builder.loadedAgentId}
+                        onUpdate={handleUpdate}
+                        onCreateNew={handleCreateNew}
+                      />
+                    </div>
                   </div>
                 </div>
-              ))}
-            </div>
-          </section>
-        )}
-      </main>
+              </main>
+            </DndWrapper>
+          )}
+
+          {/* ---- Tab 2: Saved Agents ---- */}
+          {activeTab === 'saved' && (
+            <SavedAgentsList
+              agents={savedAgents}
+              data={data}
+              onLoad={handleLoadAgent}
+              onDelete={deleteAgent}
+              onClearAll={clearAll}
+              onChat={handleOpenChat}
+              driveSync={{
+                isSignedIn: !!googleUser,
+                isSyncing,
+                lastSynced,
+                onSyncToDrive: handleSyncToDrive,
+                onLoadFromDrive: handleLoadFromDrive,
+              }}
+              recentlySavedId={recentlySavedId}
+            />
+          )}
+        </>
+      )}
+
+      {/* Simulated Chat */}
+      {chat.isOpen && chat.activeAgent && chat.agentData && (
+        <ChatPlayground
+          agent={chat.activeAgent}
+          data={chat.agentData}
+          messages={chat.messages}
+          isTyping={chat.isTyping}
+          onSendMessage={chat.sendMessage}
+          onClose={chat.closeChat}
+        />
+      )}
+
+      {/* Live Chat */}
+      {liveChat && data && (
+        <LiveChatPlayground
+          agent={liveChat.agent}
+          data={data}
+          apiKey={liveChat.apiKey}
+          onClose={() => setLiveChat(null)}
+        />
+      )}
+
+      {/* API Key Modal */}
+      {pendingChatAgent && (
+        <ApiKeyModal
+          provider={pendingChatAgent.provider as Provider}
+          isOpen={!!pendingChatAgent}
+          onSubmit={handleApiKeySubmit}
+          onCancel={() => setPendingChatAgent(null)}
+        />
+      )}
+
+      {/* Drive Consent Modal */}
+      <DriveConsentModal
+        isOpen={showConsentModal}
+        onUnderstood={handleConsentUnderstood}
+        onCancel={() => setShowConsentModal(false)}
+      />
+
+      {/* Google Drive Setup Modal (VITE_USE_ENV_CREDENTIALS=false path) */}
+      <GoogleSetupModal
+        isOpen={showSetupModal}
+        onConnect={handleSetupConnect}
+        onSkip={() => setShowSetupModal(false)}
+      />
     </div>
   )
 }
 
+function App() {
+  return (
+    <ErrorBoundary>
+      <ToastProvider>
+        <div className="cosmic-bg" aria-hidden="true">
+          <div className="blob blob-1" />
+          <div className="blob blob-2" />
+          <div className="blob blob-3" />
+          <div className="blob blob-4" />
+        </div>
+        <AppContent />
+      </ToastProvider>
+    </ErrorBoundary>
+  )
+}
+
 export default App
+
+// #################################################
