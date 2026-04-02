@@ -10,14 +10,8 @@ import { ErrorBoundary } from './components/shared/ErrorBoundary'
 import { ToastProvider } from './components/shared/Toast'
 import { useToast } from './components/shared/ToastContext'
 import { LoadingSkeleton } from './components/shared/LoadingSkeleton'
-import { DndWrapper } from './components/shared/DndWrapper'
 import { AppHeader } from './components/layout/AppHeader'
-import { ProfileCardGrid } from './components/profile/ProfileCardGrid'
-import { SkillPool } from './components/skills/SkillPool'
-import { LayerPool } from './components/layers/LayerPool'
-import { ProviderCardGrid } from './components/provider/ProviderCardGrid'
-import { AgentPreview } from './components/builder/AgentPreview'
-import { SaveAgentForm } from './components/builder/SaveAgentForm'
+import { AgentBuilderTab } from './components/builder/AgentBuilderTab'
 import { SavedAgentsList } from './components/saved/SavedAgentsList'
 import { ChatPlayground } from './components/chat/ChatPlayground'
 import { LiveChatPlayground } from './components/chat/LiveChatPlayground'
@@ -218,7 +212,7 @@ function AppContent() {
     } else if (agent.provider && agent.provider !== '') {
       setPendingChatAgent(agent)
     } else {
-      chat.openChat(agent, data)
+      void chat.openChat(agent, data)
     }
   }
 
@@ -294,79 +288,13 @@ function AppContent() {
         <>
           {/* ---- Tab 1: Agent Builder ---- */}
           {activeTab === 'builder' && (
-            <DndWrapper
-              skills={data.skills}
-              layers={data.layers}
-              selectedSkillIds={builder.selectedSkills}
-              selectedLayerIds={builder.selectedLayers}
-              onSkillAdd={builder.addSkill}
-              onLayerAdd={builder.addLayer}
-              onSkillReorder={builder.reorderSkills}
-              onLayerReorder={builder.reorderLayers}
-            >
-              <main className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-                {/* Left: Configuration Options */}
-                <div className="lg:col-span-3 space-y-8">
-                  <ProfileCardGrid
-                    profiles={data.agentProfiles}
-                    selectedProfileId={builder.selectedProfile}
-                    onSelect={builder.setSelectedProfile}
-                  />
-
-                  <section>
-                    <h2 className="text-lg font-semibold text-white/90 mb-1">Skills</h2>
-                    <p className="text-sm text-white/40 mb-3">Drag to the preview panel or click to add</p>
-                    <SkillPool
-                      skills={data.skills}
-                      selectedSkillIds={builder.selectedSkills}
-                      onAdd={builder.addSkill}
-                    />
-                  </section>
-
-                  <section>
-                    <h2 className="text-lg font-semibold text-white/90 mb-1">Personality Layers</h2>
-                    <p className="text-sm text-white/40 mb-3">Drag to the preview panel or click to add</p>
-                    <LayerPool
-                      layers={data.layers}
-                      selectedLayerIds={builder.selectedLayers}
-                      onAdd={builder.addLayer}
-                    />
-                  </section>
-
-                  <ProviderCardGrid
-                    selectedProvider={builder.selectedProvider}
-                    onSelect={builder.setSelectedProvider}
-                  />
-                </div>
-
-                {/* Right: Agent Preview (sticky on desktop) */}
-                <div className="lg:col-span-2">
-                  <div className="lg:sticky lg:top-6">
-                    <h2 className="text-lg font-semibold text-white/90 mb-3">Agent Configuration</h2>
-                    <div className="glass rounded-2xl p-5 shimmer-card">
-                      <AgentPreview
-                        data={data}
-                        selectedProfile={builder.selectedProfile}
-                        selectedSkillIds={builder.selectedSkills}
-                        selectedLayerIds={builder.selectedLayers}
-                        selectedProvider={builder.selectedProvider}
-                        onRemoveSkill={builder.removeSkill}
-                        onRemoveLayer={builder.removeLayer}
-                      />
-                      <SaveAgentForm
-                        agentName={builder.agentName}
-                        onAgentNameChange={builder.setAgentName}
-                        onSave={handleSave}
-                        onReset={builder.reset}
-                        loadedAgentId={builder.loadedAgentId}
-                        onUpdate={handleUpdate}
-                        onCreateNew={handleCreateNew}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </main>
-            </DndWrapper>
+            <AgentBuilderTab
+              data={data}
+              builder={builder}
+              onSave={handleSave}
+              onUpdate={handleUpdate}
+              onCreateNew={handleCreateNew}
+            />
           )}
 
           {/* ---- Tab 2: Saved Agents ---- */}

@@ -1,6 +1,12 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import type { ChatMessage, SavedAgent, AgentData } from '../types'
-import { generateResponse, generateGreeting } from '../lib/simulation-engine'
+
+// Lazily loaded on first chat open — keeps simulation code out of the initial bundle
+let _engine: Promise<typeof import('../lib/simulation-engine')> | null = null
+function loadEngine() {
+  if (!_engine) _engine = import('../lib/simulation-engine')
+  return _engine
+}
 
 // ################ useChatPlayground Hook ##################
 // Manages the chat playground state: message history, typing indicator,
@@ -29,10 +35,11 @@ export function useChatPlayground() {
     }
   }, [])
 
-  const openChat = useCallback((agent: SavedAgent, data: AgentData) => {
+  const openChat = useCallback(async (agent: SavedAgent, data: AgentData) => {
     setActiveAgent(agent)
     setAgentData(data)
 
+    const { generateGreeting } = await loadEngine()
     const greeting = generateGreeting(agent.profileId)
     const greetingMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -61,23 +68,25 @@ export function useChatPlayground() {
     const delay = 800 + Math.random() * 700
 
     typingTimeoutRef.current = setTimeout(() => {
-      const { text: responseText, skillCards } = generateResponse({
-        userMessage: text,
-        profileId: activeAgent.profileId,
-        skillIds: activeAgent.skillIds,
-        layerIds: activeAgent.layerIds,
+      void loadEngine().then(({ generateResponse }) => {
+        const { text: responseText, skillCards } = generateResponse({
+          userMessage: text,
+          profileId: activeAgent.profileId,
+          skillIds: activeAgent.skillIds,
+          layerIds: activeAgent.layerIds,
+        })
+
+        const assistantMessage: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: responseText,
+          timestamp: Date.now(),
+          skillCards: skillCards.length > 0 ? skillCards : undefined,
+        }
+
+        setMessages(prev => [...prev, assistantMessage])
+        setIsTyping(false)
       })
-
-      const assistantMessage: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: responseText,
-        timestamp: Date.now(),
-        skillCards: skillCards.length > 0 ? skillCards : undefined,
-      }
-
-      setMessages(prev => [...prev, assistantMessage])
-      setIsTyping(false)
     }, delay)
   }, [activeAgent])
 
