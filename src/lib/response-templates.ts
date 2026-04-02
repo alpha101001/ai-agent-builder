@@ -336,10 +336,13 @@ export const SKILL_ACTION_TEMPLATES: Record<string, { type: string; getResult: (
   },
   sk_code: {
     type: 'code',
-    getResult: (_query: string) => ({
-      title: 'Code Execution Result',
-      content: '```\n✓ Code executed successfully\n  Runtime: 0.023s\n  Output: [Result computed]\n  Memory: 2.4MB peak\n```',
-    }),
+    getResult: (query: string) => {
+      void query
+      return {
+        title: 'Code Execution Result',
+        content: '```\n✓ Code executed successfully\n  Runtime: 0.023s\n  Output: [Result computed]\n  Memory: 2.4MB peak\n```',
+      }
+    },
   },
   sk_db: {
     type: 'data',
@@ -350,24 +353,33 @@ export const SKILL_ACTION_TEMPLATES: Record<string, { type: string; getResult: (
   },
   sk_email: {
     type: 'email',
-    getResult: (_query: string) => ({
-      title: 'Email Draft Ready',
-      content: '📧 Email draft prepared and ready for review.\n\n**To:** recipient@example.com\n**Subject:** Following up on our conversation\n**Status:** Draft saved — click Send when ready',
-    }),
+    getResult: (query: string) => {
+      void query
+      return {
+        title: 'Email Draft Ready',
+        content: '📧 Email draft prepared and ready for review.\n\n**To:** recipient@example.com\n**Subject:** Following up on our conversation\n**Status:** Draft saved — click Send when ready',
+      }
+    },
   },
   sk_calendar: {
     type: 'calendar',
-    getResult: (_query: string) => ({
-      title: 'Calendar Update',
-      content: '📅 Calendar checked:\n\n• Today: 2 meetings (10am, 2pm)\n• Tomorrow: 1 meeting (11am), rest is free\n• This week: 5 open slots available for scheduling',
-    }),
+    getResult: (query: string) => {
+      void query
+      return {
+        title: 'Calendar Update',
+        content: '📅 Calendar checked:\n\n• Today: 2 meetings (10am, 2pm)\n• Tomorrow: 1 meeting (11am), rest is free\n• This week: 5 open slots available for scheduling',
+      }
+    },
   },
   sk_pdf_parse: {
     type: 'generic',
-    getResult: (_query: string) => ({
-      title: 'PDF Analysis Complete',
-      content: '📄 Document parsed successfully:\n\n• Pages: 12\n• Tables found: 3\n• Images: 7\n• Text extracted: 4,200 words\n\nKey sections identified and ready for analysis.',
-    }),
+    getResult: (query: string) => {
+      void query
+      return {
+        title: 'PDF Analysis Complete',
+        content: '📄 Document parsed successfully:\n\n• Pages: 12\n• Tables found: 3\n• Images: 7\n• Text extracted: 4,200 words\n\nKey sections identified and ready for analysis.',
+      }
+    },
   },
   sk_image_gen: {
     type: 'image',
@@ -378,10 +390,13 @@ export const SKILL_ACTION_TEMPLATES: Record<string, { type: string; getResult: (
   },
   sk_data_analysis: {
     type: 'data',
-    getResult: (_query: string) => ({
-      title: 'Data Analysis Summary',
-      content: '📊 Analysis complete:\n\n• **Mean:** 847.3\n• **Median:** 812.0\n• **Std Dev:** 124.5\n• **Trend:** ↗ +12.3% MoM\n• **Outliers:** 2 detected (IDs: 47, 183)\n\nStatistical significance confirmed (p < 0.05).',
-    }),
+    getResult: (query: string) => {
+      void query
+      return {
+        title: 'Data Analysis Summary',
+        content: '📊 Analysis complete:\n\n• **Mean:** 847.3\n• **Median:** 812.0\n• **Std Dev:** 124.5\n• **Trend:** ↗ +12.3% MoM\n• **Outliers:** 2 detected (IDs: 47, 183)\n\nStatistical significance confirmed (p < 0.05).',
+      }
+    },
   },
   sk_translate: {
     type: 'translation',
@@ -399,17 +414,23 @@ export const SKILL_ACTION_TEMPLATES: Record<string, { type: string; getResult: (
   },
   sk_git: {
     type: 'code',
-    getResult: (_query: string) => ({
-      title: 'Git Operation Complete',
-      content: '```\n$ git status\n  On branch: feature/update\n  Changes: 3 modified, 1 new\n  Ahead of origin by 2 commits\n\n✓ Changes committed successfully\n```',
-    }),
+    getResult: (query: string) => {
+      void query
+      return {
+        title: 'Git Operation Complete',
+        content: '```\n$ git status\n  On branch: feature/update\n  Changes: 3 modified, 1 new\n  Ahead of origin by 2 commits\n\n✓ Changes committed successfully\n```',
+      }
+    },
   },
   sk_social: {
     type: 'generic',
-    getResult: (_query: string) => ({
-      title: 'Social Media Update',
-      content: '📱 Post scheduled:\n\n• Platform: Twitter, LinkedIn\n• Scheduled: Today at 2:00 PM EST\n• Estimated reach: ~2,400 impressions\n• Hashtags: 3 suggested\n\nDraft ready for review.',
-    }),
+    getResult: (query: string) => {
+      void query
+      return {
+        title: 'Social Media Update',
+        content: '📱 Post scheduled:\n\n• Platform: Twitter, LinkedIn\n• Scheduled: Today at 2:00 PM EST\n• Estimated reach: ~2,400 impressions\n• Hashtags: 3 suggested\n\nDraft ready for review.',
+      }
+    },
   },
 }
 

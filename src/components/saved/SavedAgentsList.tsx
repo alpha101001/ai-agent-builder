@@ -44,9 +44,6 @@ export function SavedAgentsList({
   const [searchQuery, setSearchQuery] = useState('')
   const [activeProfileFilter, setActiveProfileFilter] = useState<string | null>(null)
 
-  // Hide entire section when no agents AND not signed in (Drive sync unavailable)
-  if (agents.length === 0 && !driveSync?.isSignedIn) return null
-
   const handleClearAll = () => {
     onClearAll()
     setSearchQuery('')
@@ -84,6 +81,9 @@ export function SavedAgentsList({
 
   const hasAgents = agents.length > 0
   const isFiltering = !!searchQuery || !!activeProfileFilter
+
+  // Hide entire section when no agents AND not signed in (Drive sync unavailable)
+  if (agents.length === 0 && !driveSync?.isSignedIn) return null
 
   return (
     <section data-section="saved-agents">

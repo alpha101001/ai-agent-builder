@@ -23,9 +23,12 @@ export function useAgentBuilder() {
   const [sessionTime, setSessionTime] = useState(0)
   const [loadedAgentId, setLoadedAgentId] = useState<string | null>(null)
 
-  // Ref so analytics interval always reads the latest name without restarting
-  const agentNameRef = useRef(agentName)
-  agentNameRef.current = agentName
+  // Ref so analytics interval always reads the latest name without restarting.
+  // Keep the ref synchronized in an effect to avoid mutating refs during render.
+  const agentNameRef = useRef('')
+  useEffect(() => {
+    agentNameRef.current = agentName
+  }, [agentName])
 
   // Session timer
   useEffect(() => {
@@ -44,7 +47,7 @@ export function useAgentBuilder() {
       }
     }, 8000)
     return () => clearInterval(analyticsInterval)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
 
   // Bug #1 fix: immutable array updates via functional updaters
   const addSkill = (skillId: string) => {

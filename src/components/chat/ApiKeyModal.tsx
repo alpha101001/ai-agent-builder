@@ -24,12 +24,9 @@ export function ApiKeyModal({ provider, isOpen, onSubmit, onCancel }: ApiKeyModa
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    if (isOpen) {
-      setApiKey('')
-      setError('')
-      setShowKey(false)
-      setTimeout(() => inputRef.current?.focus(), 50)
-    }
+    if (!isOpen) return
+    const timer = setTimeout(() => inputRef.current?.focus(), 50)
+    return () => clearTimeout(timer)
   }, [isOpen])
 
   useEffect(() => {

@@ -49,7 +49,7 @@ const LAYER_TRANSFORMS: Record<string, (text: string) => string> = {
   },
 
   ly_pirate: (text) => {
-    let pirateText = text
+    const pirateText = text
       .replace(/\bHello\b/gi, 'Ahoy')
       .replace(/\bHi\b/gi, 'Ahoy')
       .replace(/\bfriend\b/gi, 'matey')
@@ -111,7 +111,7 @@ const LAYER_TRANSFORMS: Record<string, (text: string) => string> = {
   },
 
   ly_shakespeare: (text) => {
-    let bard = text
+    const bard = text
       .replace(/\byou\b/gi, 'thou')
       .replace(/\byour\b/gi, 'thy')
       .replace(/\bare\b/gi, 'art')

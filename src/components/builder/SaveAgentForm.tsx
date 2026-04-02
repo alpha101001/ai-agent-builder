@@ -70,7 +70,11 @@ export function SaveAgentForm({
         className="w-full px-3 py-2 rounded-lg text-sm input-dark mb-2"
         onKeyDown={e => {
           if (e.key === 'Enter') {
-            loadedAgentId ? handleUpdate() : handleSave()
+            if (loadedAgentId) {
+              handleUpdate()
+            } else {
+              handleSave()
+            }
           }
         }}
       />
