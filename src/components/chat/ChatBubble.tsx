@@ -5,6 +5,13 @@ interface ChatBubbleProps {
   message: ChatMessage
 }
 
+function formatTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 export function ChatBubble({ message }: ChatBubbleProps) {
   const isUser = message.role === 'user'
 
@@ -44,10 +51,7 @@ export function ChatBubble({ message }: ChatBubbleProps) {
 
         {/* Timestamp */}
         <span className="text-[10px] text-white/25 mt-1 px-1">
-          {new Date(message.timestamp).toLocaleTimeString('en-US', {
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
+          {formatTime(message.timestamp)}
         </span>
       </div>
     </div>

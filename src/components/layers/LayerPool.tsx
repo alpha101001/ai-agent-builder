@@ -12,7 +12,8 @@ interface LayerPoolProps {
 }
 
 export function LayerPool({ layers, selectedLayerIds, onAdd }: LayerPoolProps) {
-  const availableLayers = layers.filter(l => !selectedLayerIds.includes(l.id))
+  const selectedSet = new Set(selectedLayerIds)
+  const availableLayers = layers.filter(l => !selectedSet.has(l.id))
 
   if (availableLayers.length === 0) {
     return (

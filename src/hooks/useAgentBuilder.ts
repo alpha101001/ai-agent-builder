@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { arrayMove } from '@dnd-kit/sortable'
 
 // ################ useAgentBuilder Hook ##################
@@ -23,6 +23,10 @@ export function useAgentBuilder() {
   const [sessionTime, setSessionTime] = useState(0)
   const [loadedAgentId, setLoadedAgentId] = useState<string | null>(null)
 
+  // Ref so analytics interval always reads the latest name without restarting
+  const agentNameRef = useRef(agentName)
+  agentNameRef.current = agentName
+
   // Session timer
   useEffect(() => {
     const interval = setInterval(() => {
@@ -31,15 +35,16 @@ export function useAgentBuilder() {
     return () => clearInterval(interval)
   }, [])
 
-  // Analytics heartbeat — Bug #2 fix: agentName in dependency array
+  // Analytics heartbeat — reads agentName via ref so the interval is set up
+  // once and never restarted on every keystroke.
   useEffect(() => {
     const analyticsInterval = setInterval(() => {
-      if (agentName !== '') {
+      if (agentNameRef.current !== '') {
         // Analytics: user is working on a named agent
       }
     }, 8000)
     return () => clearInterval(analyticsInterval)
-  }, [agentName])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Bug #1 fix: immutable array updates via functional updaters
   const addSkill = (skillId: string) => {

@@ -13,7 +13,8 @@ interface SkillPoolProps {
 }
 
 export function SkillPool({ skills, selectedSkillIds, onAdd }: SkillPoolProps) {
-  const availableSkills = skills.filter(s => !selectedSkillIds.includes(s.id))
+  const selectedSet = new Set(selectedSkillIds)
+  const availableSkills = skills.filter(s => !selectedSet.has(s.id))
 
   if (availableSkills.length === 0) {
     return (

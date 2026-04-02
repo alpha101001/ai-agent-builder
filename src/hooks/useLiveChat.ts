@@ -12,6 +12,8 @@ import { FREE_PROVIDER } from '../lib/constants'
 // - Functional setState updaters to avoid stale closures during streaming
 // - System prompt built once on openChat, cached for session
 // - streamProviderResponse is loaded lazily to avoid circular imports
+// - activeAgent/messages/isStreaming tracked via refs so sendMessage has
+//   zero deps (stable ref) and is never recreated during streaming chunks
 
 interface LiveChatState {
   isOpen: boolean
@@ -46,6 +48,12 @@ export function useLiveChat(): UseLiveChatReturn {
   const abortControllerRef = useRef<AbortController | null>(null)
   const systemPromptRef = useRef<string>('')
   const apiKeyRef = useRef<string | undefined>(undefined)
+  // Refs mirror the corresponding state fields so sendMessage can read
+  // current values without listing them as deps (which would cause it to
+  // be recreated on every streaming chunk).
+  const activeAgentRef = useRef<SavedAgent | null>(null)
+  const messagesRef = useRef<ChatMessage[]>([])
+  const isStreamingRef = useRef(false)
 
   // Cleanup on unmount
   useEffect(() => {
@@ -56,6 +64,7 @@ export function useLiveChat(): UseLiveChatReturn {
 
   const stopStreaming = useCallback(() => {
     abortControllerRef.current?.abort()
+    isStreamingRef.current = false
     setState(prev => ({ ...prev, isStreaming: false }))
   }, [])
 
@@ -65,6 +74,9 @@ export function useLiveChat(): UseLiveChatReturn {
     apiKey?: string
   ) => {
     apiKeyRef.current = apiKey
+    activeAgentRef.current = agent
+    messagesRef.current = []
+    isStreamingRef.current = false
 
     // Build system prompt from profile + skill/layer .md files
     const systemPrompt = await buildSystemPrompt(agent, data)
@@ -85,6 +97,9 @@ export function useLiveChat(): UseLiveChatReturn {
     abortControllerRef.current = null
     systemPromptRef.current = ''
     apiKeyRef.current = undefined
+    activeAgentRef.current = null
+    messagesRef.current = []
+    isStreamingRef.current = false
     setState({
       isOpen: false,
       messages: [],
@@ -95,16 +110,17 @@ export function useLiveChat(): UseLiveChatReturn {
     })
   }, [])
 
+  // sendMessage has no state deps — reads everything from refs.
+  // This keeps the callback reference stable across streaming chunks,
+  // preventing unnecessary child re-renders during a long response.
   const sendMessage = useCallback(async (text: string) => {
-    setState(prev => {
-      if (!prev.activeAgent || prev.isStreaming) return prev
-      return prev
-    })
+    if (!activeAgentRef.current || isStreamingRef.current) return
 
     // Abort any in-flight request
     abortControllerRef.current?.abort()
     const controller = new AbortController()
     abortControllerRef.current = controller
+    isStreamingRef.current = true
 
     const userMessage: ChatMessage = {
       id: makeId(),
@@ -122,6 +138,9 @@ export function useLiveChat(): UseLiveChatReturn {
       isStreaming: true,
     }
 
+    // Keep ref in sync before state update so history is correct on next send
+    messagesRef.current = [...messagesRef.current, userMessage, assistantPlaceholder]
+
     setState(prev => ({
       ...prev,
       messages: [...prev.messages, userMessage, assistantPlaceholder],
@@ -133,10 +152,10 @@ export function useLiveChat(): UseLiveChatReturn {
       // Lazy import to avoid circular dependency issues
       const { streamProviderResponse } = await import('../lib/provider-clients')
 
-      const provider = state.activeAgent?.provider ?? FREE_PROVIDER
+      const provider = activeAgentRef.current.provider ?? FREE_PROVIDER
 
-      // Build conversation history for the API (exclude streaming placeholders)
-      const history = state.messages
+      // Build conversation history from ref (exclude streaming placeholders)
+      const history = messagesRef.current
         .filter(m => !m.isStreaming)
         .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
 
@@ -163,17 +182,17 @@ export function useLiveChat(): UseLiveChatReturn {
         }))
       }
 
-      // Mark streaming complete
-      setState(prev => ({
-        ...prev,
-        isStreaming: false,
-        messages: prev.messages.map(m =>
-          m.id === assistantMessageId
-            ? { ...m, isStreaming: false }
-            : m
-        ),
-      }))
+      // Mark streaming complete and sync messages ref
+      isStreamingRef.current = false
+      setState(prev => {
+        const finalMessages = prev.messages.map(m =>
+          m.id === assistantMessageId ? { ...m, isStreaming: false } : m
+        )
+        messagesRef.current = finalMessages
+        return { ...prev, isStreaming: false, messages: finalMessages }
+      })
     } catch (err: unknown) {
+      isStreamingRef.current = false
       if (err instanceof Error && err.name === 'AbortError') {
         // User aborted — just mark as done
         setState(prev => ({
@@ -200,7 +219,7 @@ export function useLiveChat(): UseLiveChatReturn {
         ),
       }))
     }
-  }, [state.activeAgent, state.messages, state.isStreaming])
+  }, []) // stable ref — no state deps
 
   return {
     ...state,
